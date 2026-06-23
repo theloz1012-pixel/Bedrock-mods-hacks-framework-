@@ -1,0 +1,91 @@
+#include "pch.h"
+#include <windows.h>
+#include <vector>
+#include <cmath>
+
+float targetX = 0.0f;
+float targetY = 0.0f;
+float targetZ = 0.0f;
+
+static uintptr_t ResolveInternalPointerChain(uintptr_t basePtr, const std::vector<unsigned int>& offsets) {
+    uintptr_t currentAddress = basePtr;
+    MEMORY_BASIC_INFORMATION mbi;
+
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        if (currentAddress < 0x10000 || currentAddress > 0x7FFFFFFFFFFF) return 0;
+
+        if (VirtualQuery((LPCVOID)currentAddress, &mbi, sizeof(mbi)) == 0) return 0;
+        if ((mbi.State != MEM_COMMIT) || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return 0;
+
+        currentAddress = *(uintptr_t*)currentAddress;
+
+        if (currentAddress == 0) return 0;
+        currentAddress += offsets[i];
+    }
+    return currentAddress;
+}
+
+static DWORD WINAPI TeleportThread(LPVOID lpParam) {
+    Sleep(2000);
+    uintptr_t baseModule = (uintptr_t)GetModuleHandle(L"Minecraft.Windows.exe");
+    if (baseModule == 0) return 0;
+    //update this plz
+    uintptr_t staticOffsetAddress = baseModule + 0x10E4AA10;
+    std::vector<unsigned int> playerOffsets = { 0x30, 0x208, 0x28, 0x40, 0x00 };
+
+    while (true) {
+        Sleep(50);
+
+        if (GetAsyncKeyState(VK_F4) & 0x8000) {
+            uintptr_t xCoordAddress = ResolveInternalPointerChain(staticOffsetAddress, playerOffsets);
+            if (xCoordAddress != 0) {
+
+                while (true) {
+
+                    float currentX = *(float*)xCoordAddress;
+                    float currentY = *(float*)(xCoordAddress + 0x4);
+                    float currentZ = *(float*)(xCoordAddress + 0x8);
+
+                    float dirX = targetX - currentX;
+                    float dirY = targetY - currentY;
+                    float dirZ = targetZ - currentZ;
+                    float distance = std::sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+
+                    if (distance < 3.0f) {
+                        *(float*)xCoordAddress = targetX;
+                        *(float*)(xCoordAddress + 0x4) = targetY;
+                        *(float*)(xCoordAddress + 0x8) = targetZ;
+                        break;
+                    }
+
+                    currentX += (dirX / distance) * 3.0f;
+                    currentY += (dirY / distance) * 3.0f;
+                    currentZ += (dirZ / distance) * 3.0f;
+
+                    *(float*)xCoordAddress = currentX;
+                    *(float*)(xCoordAddress + 0x4) = currentY;
+                    *(float*)(xCoordAddress + 0x8) = currentZ;
+
+                    Sleep(10);
+                }
+            }
+            Sleep(400);
+        }
+
+        if (GetAsyncKeyState(VK_F5) & 0x8000) {
+            uintptr_t xCoordAddress = ResolveInternalPointerChain(staticOffsetAddress, playerOffsets);
+            if (xCoordAddress != 0) {
+                targetX = *(float*)xCoordAddress;
+                targetY = *(float*)(xCoordAddress + 0x4);
+                targetZ = *(float*)(xCoordAddress + 0x8);
+                Beep(750, 300);
+            }
+            Sleep(400);
+        }
+
+        if (GetAsyncKeyState(VK_END) & 0x8000) {
+            break;
+        }
+    }
+    return 0;
+}
