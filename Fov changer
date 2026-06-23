@@ -1,0 +1,67 @@
+#include "pch.h"
+#include <windows.h>
+#include <vector>
+
+uintptr_t ClientInstanceOffset = 0x0;
+
+std::vector<uintptr_t> FovChainOffsets = { 0x0, 0x0, 0x0 };
+
+static uintptr_t EvaluatePointerChain(uintptr_t baseAddress, const std::vector<uintptr_t>& offsets) {
+    uintptr_t currentAddress = baseAddress;
+
+    for (size_t i = 0; i < offsets.size(); ++i) {
+
+        if (currentAddress == 0) return 0;
+
+        currentAddress = *(uintptr_t*)currentAddress;
+
+        currentAddress += offsets[i];
+    }
+    return currentAddress;
+}
+
+static void SetFOV(float targetFov) {
+    uintptr_t gameBase = (uintptr_t)GetModuleHandleA("Minecraft.Windows.exe");
+    if (gameBase == 0) return;
+
+    uintptr_t clientInstance = *(uintptr_t*)(gameBase + ClientInstanceOffset);
+    if (clientInstance == 0) return;
+
+    uintptr_t fovTargetAddress = EvaluatePointerChain(clientInstance, FovChainOffsets);
+
+    if (fovTargetAddress != 0) {
+        *(float*)fovTargetAddress = targetFov;
+    }
+}
+
+static DWORD WINAPI MainThread(LPVOID lpParam) {
+    bool isZoomed = false;
+    float defaultFov = 120.0f;
+    float zoomFov = 30.0f;
+
+    while (true) {
+
+        if (GetAsyncKeyState(0x43) & 0x8000) {
+            if (!isZoomed) {
+                SetFOV(zoomFov);
+                isZoomed = true;
+            }
+        }
+        else {
+            if (isZoomed) {
+                SetFOV(defaultFov);
+                isZoomed = false;
+            }
+        }
+        Sleep(10);
+    }
+    return 0;
+}
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+    if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(hModule);
+        CreateThread(nullptr, 0, MainThread, nullptr, 0, nullptr);
+    }
+    return TRUE;
+}
